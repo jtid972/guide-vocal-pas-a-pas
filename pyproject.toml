@@ -1,6 +1,6 @@
 [project]
 name = "guide-vocal-pas-a-pas"
-version = "0.1.0"
+version = "0.2.0"
 description = "Guide vocal pas à pas : texte vers voix (Piper, hors ligne) pour Alcatel OXE/4400 (G.711) et Asterisk/FreePBX (MP3/WAV)"
 readme = "README.md"
 license = "AGPL-3.0-or-later"

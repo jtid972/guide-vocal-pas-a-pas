@@ -4,11 +4,15 @@ FROM python:3.13-slim
 
 # Numéro de version affiché (fourni par le workflow à partir de l'étiquette Git)
 ARG APP_VERSION=""
-# PRELOAD_VOICES=1 télécharge les deux voix par défaut (femme/homme) dans l'image, pour un
-# démarrage sans accès réseau (utile en serverless). Vide = téléchargées au 1er usage.
+# PRELOAD_VOICES=1 télécharge les modèles des 4 voix par défaut (2 femmes, 2 hommes) dans
+# l'image, pour un démarrage sans accès réseau (utile en serverless). Vide = téléchargées au
+# 1er usage. « upmc » sert 2 voix (femme_upmc + homme_upmc, deux locuteurs du même modèle) :
+# un seul téléchargement pour les deux.
 ARG PRELOAD_VOICES="1"
-ARG PIPER_VOICE_FEMME="fr_FR-siwis-medium"
-ARG PIPER_VOICE_HOMME="fr_FR-tom-medium"
+ARG PIPER_VOICE_FEMME_1="fr_FR-siwis-medium"
+ARG PIPER_VOICE_HOMME_1="fr_FR-tom-medium"
+ARG PIPER_VOICE_FEMME_2_MODELE="fr_FR-upmc-medium"
+ARG PIPER_VOICE_HOMME_2_MODELE="fr_FR-upmc-medium"
 
 RUN apt-get update \
     && apt-get upgrade -y \
@@ -26,14 +30,17 @@ RUN pip install --no-cache-dir -r requirements.txt \
 
 ENV DATA_DIR=/data \
     VOICES_DIR=/opt/voices \
-    PIPER_VOICE_FEMME=${PIPER_VOICE_FEMME} \
-    PIPER_VOICE_HOMME=${PIPER_VOICE_HOMME} \
+    PIPER_VOICE_FEMME_1=${PIPER_VOICE_FEMME_1} \
+    PIPER_VOICE_HOMME_1=${PIPER_VOICE_HOMME_1} \
+    PIPER_VOICE_FEMME_2_MODELE=${PIPER_VOICE_FEMME_2_MODELE} \
+    PIPER_VOICE_HOMME_2_MODELE=${PIPER_VOICE_HOMME_2_MODELE} \
     PYTHONUNBUFFERED=1 \
     APP_VERSION=${APP_VERSION}
 
 RUN mkdir -p /data /opt/voices \
     && if [ -n "$PRELOAD_VOICES" ]; then \
-         for v in "$PIPER_VOICE_FEMME" "$PIPER_VOICE_HOMME"; do \
+         for v in "$PIPER_VOICE_FEMME_1" "$PIPER_VOICE_HOMME_1" "$PIPER_VOICE_FEMME_2_MODELE" "$PIPER_VOICE_HOMME_2_MODELE"; do \
+           [ -f "/opt/voices/$v.onnx" ] && continue; \
            lang_region=$(echo "$v" | cut -d- -f1); \
            nom=$(echo "$v" | cut -d- -f2); \
            qualite=$(echo "$v" | cut -d- -f3); \

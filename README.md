@@ -62,10 +62,19 @@ détaille ces étapes.
 
 ## Voix disponibles
 
-Deux voix françaises [Piper](https://huggingface.co/rhasspy/piper-voices) sont utilisées par
-défaut (qualité « medium ») : `fr_FR-siwis-medium` (femme) et `fr_FR-tom-medium` (homme).
-Elles se changent sans toucher au code via les variables d'environnement
-`PIPER_VOICE_FEMME` / `PIPER_VOICE_HOMME` (voir `docker-compose.yml`).
+Un menu permet de choisir parmi **4 voix françaises** [Piper](https://huggingface.co/rhasspy/piper-voices)
+(qualité « medium ») : **2 femmes** et **2 hommes**.
+
+| Voix | Modèle | Genre |
+|---|---|---|
+| Femme — Siwis | `fr_FR-siwis-medium` | confirmé |
+| Femme — UPMC (voix 2) | `fr_FR-upmc-medium`, locuteur 0 | à vérifier à l'oreille |
+| Homme — Tom | `fr_FR-tom-medium` | à vérifier à l'oreille |
+| Homme — UPMC (voix 2) | `fr_FR-upmc-medium`, locuteur 1 | à vérifier à l'oreille |
+
+La liste complète (avec l'identifiant à passer à l'API) est disponible sur `GET /api/voix`.
+Modèles et numéros de locuteur se changent sans toucher au code via des variables
+d'environnement (voir `docker-compose.yml` et `AGENTS.md`).
 
 ## Documentation
 

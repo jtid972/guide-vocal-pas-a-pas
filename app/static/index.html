@@ -30,8 +30,7 @@ L'application produit le fichier audio au bon format, ainsi qu'un guide d'import
 
   <fieldset>
     <legend>Voix</legend>
-    <label><input type="radio" name="voix" value="femme" checked> Femme</label>
-    <label><input type="radio" name="voix" value="homme"> Homme</label>
+    <div id="voix_options">Chargement des voix…</div>
   </fieldset>
 
   <fieldset>
@@ -81,6 +80,34 @@ function majOptions() {
 }
 cibleRadios.forEach(r => r.addEventListener('change', majOptions));
 majOptions();
+
+async function chargerVoix() {
+  const conteneur = document.getElementById('voix_options');
+  try {
+    const rep = await fetch('/api/voix');
+    const { voix, par_defaut } = await rep.json();
+    const parGenre = { femme: [], homme: [] };
+    voix.forEach(v => parGenre[v.genre].push(v));
+    conteneur.innerHTML = '';
+    ['femme', 'homme'].forEach(genre => {
+      const titre = document.createElement('strong');
+      titre.textContent = genre === 'femme' ? 'Femme' : 'Homme';
+      titre.style.display = 'block';
+      titre.style.marginTop = '0.4rem';
+      conteneur.appendChild(titre);
+      parGenre[genre].forEach(v => {
+        const label = document.createElement('label');
+        const coche = v.id === par_defaut ? 'checked' : '';
+        label.innerHTML = `<input type="radio" name="voix" value="${v.id}" ${coche}> ${v.label}` +
+          (v.a_verifier ? ' <small>(genre à confirmer à l\'oreille)</small>' : '');
+        conteneur.appendChild(label);
+      });
+    });
+  } catch {
+    conteneur.textContent = "Impossible de charger la liste des voix (l'API est-elle démarrée ?).";
+  }
+}
+chargerVoix();
 
 form.addEventListener('submit', async (ev) => {
   ev.preventDefault();

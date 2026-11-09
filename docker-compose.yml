@@ -10,8 +10,12 @@ services:
       - gvap-data:/data          # travaux en cours (résultats téléchargeables)
       - gvap-voix:/opt/voices    # voix Piper téléchargées (conservées entre redémarrages)
     environment:
-      PIPER_VOICE_FEMME: fr_FR-siwis-medium
-      PIPER_VOICE_HOMME: fr_FR-tom-medium
+      PIPER_VOICE_FEMME_1: fr_FR-siwis-medium
+      PIPER_VOICE_HOMME_1: fr_FR-tom-medium
+      PIPER_VOICE_FEMME_2_MODELE: fr_FR-upmc-medium
+      PIPER_VOICE_FEMME_2_LOCUTEUR: "0"
+      PIPER_VOICE_HOMME_2_MODELE: fr_FR-upmc-medium
+      PIPER_VOICE_HOMME_2_LOCUTEUR: "1"
       MAX_CARACTERES: "8000"
       # APP_PASSWORD: "change-moi"   # à activer si l'outil est ouvert au réseau
     restart: unless-stopped

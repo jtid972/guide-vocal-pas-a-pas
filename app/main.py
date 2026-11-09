@@ -45,24 +45,58 @@ JOBS_DIR = DATA_DIR / "jobs"
 VOICES_DIR = Path(os.environ.get("VOICES_DIR", "/opt/voices"))
 BASE_HF = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
-# Voix par défaut (françaises, qualité « medium », catalogue rhasspy/piper-voices).
-# NB : « siwis » est documentée comme voix féminine (base SIWIS). « tom » est un prénom
-# masculin et sa qualité (medium) correspond à celle de siwis ; à défaut de fiche officielle
-# confirmant le genre de la voix, ce choix est à vérifier à l'oreille — il se change sans
-# toucher au code via les variables d'environnement ci-dessous.
-PIPER_VOICE_FEMME = os.environ.get("PIPER_VOICE_FEMME", "fr_FR-siwis-medium")
-PIPER_VOICE_HOMME = os.environ.get("PIPER_VOICE_HOMME", "fr_FR-tom-medium")
+# Catalogue de voix françaises (qualité « medium » sauf indication contraire, catalogue
+# rhasspy/piper-voices). Chaque entrée est un modèle Piper, avec éventuellement un numéro de
+# locuteur (« speaker ») pour les modèles multi-locuteurs.
+#
+# Genres confirmés par la documentation du modèle : « siwis » (base SIWIS, voix féminine).
+# Genres déduits (prénom) ou non documentés, à vérifier à l'oreille une fois l'application
+# lancée : « tom » (homme, par le prénom) ; les deux locuteurs du modèle « upmc » — leur ordre
+# (0/1 = homme/femme ou l'inverse) n'est pas documenté officiellement. Chaque identifiant de
+# voix se change sans toucher au code via les variables d'environnement listées ci-dessous.
+PIPER_VOICE_FEMME_1 = os.environ.get("PIPER_VOICE_FEMME_1", "fr_FR-siwis-medium")
+PIPER_VOICE_FEMME_2_MODELE = os.environ.get("PIPER_VOICE_FEMME_2_MODELE", "fr_FR-upmc-medium")
+PIPER_VOICE_FEMME_2_LOCUTEUR = int(os.environ.get("PIPER_VOICE_FEMME_2_LOCUTEUR", "0"))
+PIPER_VOICE_HOMME_1 = os.environ.get("PIPER_VOICE_HOMME_1", "fr_FR-tom-medium")
+PIPER_VOICE_HOMME_2_MODELE = os.environ.get("PIPER_VOICE_HOMME_2_MODELE", "fr_FR-upmc-medium")
+PIPER_VOICE_HOMME_2_LOCUTEUR = int(os.environ.get("PIPER_VOICE_HOMME_2_LOCUTEUR", "1"))
 
 MAX_CARACTERES = int(os.environ.get("MAX_CARACTERES", "8000"))
 PIPER_BIN = os.environ.get("PIPER_BIN", "piper")
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 
-Voix = Literal["homme", "femme"]
 Cible = Literal["alcatel_oxe", "asterisk_freepbx"]
 CodecOxe = Literal["alaw", "mulaw"]
 FormatAsterisk = Literal["mp3", "wav"]
 
-VOIX_PAR_GENRE: dict[str, str] = {"femme": PIPER_VOICE_FEMME, "homme": PIPER_VOICE_HOMME}
+
+class VoixCatalogue(BaseModel):
+    label: str
+    genre: Literal["femme", "homme"]
+    modele: str
+    locuteur: int | None = None
+    a_verifier: bool = False
+
+
+VOICES: dict[str, VoixCatalogue] = {
+    "femme_siwis": VoixCatalogue(
+        label="Femme — Siwis", genre="femme", modele=PIPER_VOICE_FEMME_1
+    ),
+    "femme_upmc": VoixCatalogue(
+        label="Femme — UPMC (voix 2)", genre="femme",
+        modele=PIPER_VOICE_FEMME_2_MODELE, locuteur=PIPER_VOICE_FEMME_2_LOCUTEUR,
+        a_verifier=True,
+    ),
+    "homme_tom": VoixCatalogue(
+        label="Homme — Tom", genre="homme", modele=PIPER_VOICE_HOMME_1, a_verifier=True
+    ),
+    "homme_upmc": VoixCatalogue(
+        label="Homme — UPMC (voix 2)", genre="homme",
+        modele=PIPER_VOICE_HOMME_2_MODELE, locuteur=PIPER_VOICE_HOMME_2_LOCUTEUR,
+        a_verifier=True,
+    ),
+}
+VOIX_PAR_DEFAUT = "femme_siwis"
 
 
 # --------------------------------------------------------------------------------------
@@ -113,10 +147,16 @@ def assurer_voix_presente(voice_id: str) -> tuple[Path, Path]:
 # --------------------------------------------------------------------------------------
 
 
-def synthetiser(texte: str, voice_id: str, sortie_wav: Path) -> None:
-    """Synthétise `texte` en voix (WAV natif Piper) avec le modèle `voice_id`."""
+def synthetiser(texte: str, voice_id: str, sortie_wav: Path, locuteur: int | None = None) -> None:
+    """Synthétise `texte` en voix (WAV natif Piper) avec le modèle `voice_id`.
+
+    `locuteur` sélectionne un numéro de locuteur pour un modèle multi-locuteurs (ex. upmc) ;
+    laisser à None pour un modèle mono-locuteur.
+    """
     modele, _config = assurer_voix_presente(voice_id)
     cmd = [PIPER_BIN, "--model", str(modele), "--output_file", str(sortie_wav)]
+    if locuteur is not None:
+        cmd += ["--speaker", str(locuteur)]
     resultat = subprocess.run(
         cmd, input=texte, capture_output=True, text=True, timeout=300
     )
@@ -235,7 +275,7 @@ ce fichier peut donc s'y substituer directement en entrée de la compilation Aud
 
 class DemandeSynthese(BaseModel):
     texte: str = Field(..., min_length=1, description="Texte à convertir en voix")
-    voix: Voix = "femme"
+    voix: str = Field(VOIX_PAR_DEFAUT, description="Identifiant de voix (voir GET /api/voix)")
     cible: Cible
     codec_oxe: CodecOxe = "alaw"
     format_asterisk: FormatAsterisk = "mp3"
@@ -264,6 +304,17 @@ def accueil() -> HTMLResponse:
     return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
+@app.get("/api/voix")
+def lister_voix() -> dict:
+    return {
+        "voix": [
+            {"id": vid, "label": v.label, "genre": v.genre, "a_verifier": v.a_verifier}
+            for vid, v in VOICES.items()
+        ],
+        "par_defaut": VOIX_PAR_DEFAUT,
+    }
+
+
 @app.post("/api/syntheses", response_model=ResultatSynthese)
 def creer_synthese(demande: DemandeSynthese) -> ResultatSynthese:
     texte = demande.texte.strip()
@@ -276,14 +327,21 @@ def creer_synthese(demande: DemandeSynthese) -> ResultatSynthese:
             "Découpez-le en plusieurs guides vocaux.",
         )
 
-    voice_id = VOIX_PAR_GENRE[demande.voix]
+    voix = VOICES.get(demande.voix)
+    if voix is None:
+        raise HTTPException(
+            400,
+            f"Voix inconnue : « {demande.voix} ». Voir GET /api/voix pour la liste des "
+            f"identifiants valides : {', '.join(VOICES)}.",
+        )
+
     job_id = uuid.uuid4().hex[:12]
     job_dir = JOBS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
     brut_wav = job_dir / "voix_brute.wav"
     try:
-        synthetiser(texte, voice_id, brut_wav)
+        synthetiser(texte, voix.modele, brut_wav, voix.locuteur)
 
         if demande.cible == "alcatel_oxe":
             ext = "wav"
@@ -305,7 +363,8 @@ def creer_synthese(demande: DemandeSynthese) -> ResultatSynthese:
     (job_dir / "GUIDE_IMPORT.md").write_text(guide_md, encoding="utf-8")
     (job_dir / "LISEZMOI.md").write_text(
         f"# {APP_NAME} — résultat\n\n"
-        f"- Voix : {demande.voix} ({voice_id})\n"
+        f"- Voix : {voix.label} ({voix.modele}"
+        f"{f', locuteur {voix.locuteur}' if voix.locuteur is not None else ''})\n"
         f"- Cible : {demande.cible}\n"
         f"- Fichier audio : {nom_fichier}\n"
         f"- Longueur du texte : {len(texte)} caractères\n\n"

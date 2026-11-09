@@ -13,6 +13,7 @@ os.environ.setdefault("VOICES_DIR", "/tmp/guide-vocal-pas-a-pas-tests/voix")
 
 from app.main import (  # noqa: E402
     JOBS_DIR,
+    VOICES,
     app,
     construire_guide,
     convertir_alcatel_oxe,
@@ -87,10 +88,29 @@ def test_conversion_asterisk_mp3(tmp_path: Path) -> None:
     assert sortie.stat().st_size > 0
 
 
+def test_catalogue_voix_au_moins_2_par_genre() -> None:
+    rep = client.get("/api/voix")
+    assert rep.status_code == 200
+    donnees = rep.json()
+    genres = [v["genre"] for v in donnees["voix"]]
+    assert genres.count("femme") >= 2
+    assert genres.count("homme") >= 2
+    assert donnees["par_defaut"] in {v["id"] for v in donnees["voix"]}
+    assert len(VOICES) >= 4
+
+
+def test_synthese_rejette_voix_inconnue() -> None:
+    rep = client.post(
+        "/api/syntheses",
+        json={"texte": "Bonjour.", "voix": "voix-qui-n-existe-pas", "cible": "alcatel_oxe"},
+    )
+    assert rep.status_code == 400
+
+
 def test_synthese_rejette_texte_vide() -> None:
     rep = client.post(
         "/api/syntheses",
-        json={"texte": "   ", "voix": "femme", "cible": "alcatel_oxe"},
+        json={"texte": "   ", "voix": "femme_siwis", "cible": "alcatel_oxe"},
     )
     assert rep.status_code == 400
 
@@ -101,7 +121,7 @@ def test_synthese_rejette_texte_trop_long(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(m, "MAX_CARACTERES", 10)
     rep = client.post(
         "/api/syntheses",
-        json={"texte": "x" * 50, "voix": "femme", "cible": "alcatel_oxe"},
+        json={"texte": "x" * 50, "voix": "femme_siwis", "cible": "alcatel_oxe"},
     )
     assert rep.status_code == 400
 
@@ -117,7 +137,7 @@ def test_job_id_invalide_refuse() -> None:
 def test_synthese_bout_en_bout_alcatel_oxe() -> None:
     rep = client.post(
         "/api/syntheses",
-        json={"texte": "Bonjour, ceci est un essai.", "voix": "femme", "cible": "alcatel_oxe", "codec_oxe": "alaw"},
+        json={"texte": "Bonjour, ceci est un essai.", "voix": "femme_siwis", "cible": "alcatel_oxe", "codec_oxe": "alaw"},
     )
     assert rep.status_code == 200, rep.text
     donnees = rep.json()
@@ -169,7 +189,7 @@ def piper_factice(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_synthese_bout_en_bout_sans_reseau_alcatel(piper_factice) -> None:
     rep = client.post(
         "/api/syntheses",
-        json={"texte": "Bonjour, ceci est un essai.", "voix": "femme", "cible": "alcatel_oxe", "codec_oxe": "alaw"},
+        json={"texte": "Bonjour, ceci est un essai.", "voix": "femme_siwis", "cible": "alcatel_oxe", "codec_oxe": "alaw"},
     )
     assert rep.status_code == 200, rep.text
     donnees = rep.json()
@@ -184,10 +204,22 @@ def test_synthese_bout_en_bout_sans_reseau_alcatel(piper_factice) -> None:
 def test_synthese_bout_en_bout_sans_reseau_asterisk_mp3(piper_factice) -> None:
     rep = client.post(
         "/api/syntheses",
-        json={"texte": "Message d'accueil.", "voix": "homme", "cible": "asterisk_freepbx", "format_asterisk": "mp3"},
+        json={"texte": "Message d'accueil.", "voix": "homme_tom", "cible": "asterisk_freepbx", "format_asterisk": "mp3"},
     )
     assert rep.status_code == 200, rep.text
     donnees = rep.json()
     assert donnees["fichier_sortie"] == "guide_asterisk.mp3"
     assert client.get(donnees["audio_url"]).status_code == 200
     shutil.rmtree(JOBS_DIR / donnees["id"], ignore_errors=True)
+
+
+@pytest.mark.skipif(not FFMPEG_DISPONIBLE, reason="ffmpeg non installé")
+@pytest.mark.parametrize("voix_id", ["femme_upmc", "homme_upmc"])
+def test_synthese_voix_multi_locuteur_sans_reseau(piper_factice, voix_id: str) -> None:
+    """Vérifie que le paramètre --speaker est accepté pour les voix multi-locuteurs (upmc)."""
+    rep = client.post(
+        "/api/syntheses",
+        json={"texte": "Essai de locuteur.", "voix": voix_id, "cible": "asterisk_freepbx", "format_asterisk": "wav"},
+    )
+    assert rep.status_code == 200, rep.text
+    shutil.rmtree(JOBS_DIR / rep.json()["id"], ignore_errors=True)
