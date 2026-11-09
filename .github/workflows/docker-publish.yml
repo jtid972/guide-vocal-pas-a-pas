@@ -1,0 +1,77 @@
+# Publication de l'image sur GitHub Container Registry (ghcr.io)
+#   ghcr.io/<compte>/guide-vocal-pas-a-pas:latest   CPU, amd64 + arm64
+# Reconstruite chaque semaine pour intégrer les correctifs de sécurité de Debian.
+# Contrôle avant publication : l'image est d'abord analysée par Trivy ; elle n'est publiée
+# que s'il n'y a aucune faille CRITIQUE ou HAUTE pour laquelle un correctif existe.
+name: Image Docker
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  schedule:
+    - cron: "41 3 * * 1"   # lundi 03:41 UTC, avant l'analyse Trivy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  TRIVY_VERSION: v0.76.2
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+          labels: |
+            org.opencontainers.image.title=Guide vocal pas à pas
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+      - name: Construction de l'image à vérifier (amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          load: true
+          tags: guide-vocal-pas-a-pas:verif
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Contrôle Trivy avant publication (bloquant)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: guide-vocal-pas-a-pas:verif
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          format: table
+          exit-code: "1"
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

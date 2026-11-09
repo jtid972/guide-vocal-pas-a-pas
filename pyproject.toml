@@ -1,0 +1,20 @@
+[project]
+name = "guide-vocal-pas-a-pas"
+version = "0.1.0"
+description = "Guide vocal pas à pas : texte vers voix (Piper, hors ligne) pour Alcatel OXE/4400 (G.711) et Asterisk/FreePBX (MP3/WAV)"
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE.md"]
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+ignore = ["B008", "E501"]  # E501 : textes longs ; B008 : File(...) / Form(...) en valeur par défaut : idiome FastAPI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

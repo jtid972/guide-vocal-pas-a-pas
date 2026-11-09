@@ -1,0 +1,5 @@
+# Versions figées : Dependabot propose les mises à jour chaque semaine
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+pydantic==2.12.3
+piper-tts==1.8.0   # synthèse vocale locale/hors-ligne (CLI « piper » + espeak-ng embarqué)

@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+data
+docs
+tests
+scripts
+**/__pycache__
+*.md
+!README.md
+!NOTICE.md

@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Fusion automatique des mises à jour Dependabot MINEURES et CORRECTIVES, uniquement APRÈS la
+# réussite complète de la CI (Linux, macOS, Windows, Docker). Ce workflow ne se déclenche qu'à la
+# fin de la CI : il ne dépend donc d'aucun réglage de protection de branche pour attendre les tests.
+# Les mises à jour MAJEURES (ex. 2.x → 3.x) ne sont jamais fusionnées automatiquement.
+name: Dependabot — fusion automatique
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vérifier la demande et fusionner si la mise à jour n'est pas majeure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "$HEAD_BRANCH" --state open --json number,headRefOid,author,title \
+                 --jq ".[] | select(.headRefOid == \"$HEAD_SHA\" and .author.login == \"app/dependabot\")")
+          if [ -z "$pr" ]; then echo "Aucune demande Dependabot ouverte pour ce commit : rien à faire."; exit 0; fi
+          number=$(echo "$pr" | jq -r .number)
+          title=$(echo "$pr" | jq -r .title)
+          echo "Demande n° $number : $title"
+          # Groupes : configurés pour ne contenir que des mises à jour mineures/correctives (dependabot.yml).
+          if echo "$title" | grep -Eq "bump the .+ group"; then
+            ok=1
+          else
+            from=$(echo "$title" | sed -nE 's/.* from v?([0-9]+)[^ ]* to v?([0-9]+).*/\1/p')
+            to=$(echo "$title"   | sed -nE 's/.* from v?([0-9]+)[^ ]* to v?([0-9]+).*/\2/p')
+            if [ -n "$from" ] && [ "$from" = "$to" ]; then ok=1; else ok=0; fi
+          fi
+          if [ "$ok" = 1 ]; then
+            gh pr merge "$number" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
+            echo "Fusionnée après réussite de la CI."
+          else
+            echo "Mise à jour majeure (ou version non reconnue) : validation manuelle requise."
+          fi

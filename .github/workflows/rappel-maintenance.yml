@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Rappels de maintenance par ticket GitHub (GitHub envoie un e-mail à chaque ticket) — aucun crédit IA :
+#   - le 1er de chaque mois : ticket « Maintenance mensuelle » avec la liste de contrôle ;
+#   - dès qu'un contrôle de sécurité échoue (Trivy, publication d'image, version mensuelle) :
+#     ticket « Blocage sécurité », complété à chaque nouvel échec jusqu'à sa fermeture.
+name: Rappel de maintenance
+
+on:
+  schedule:
+    - cron: "13 7 1 * *"   # le 1er du mois à 07:13 UTC, après la version mensuelle (04:23)
+  workflow_run:
+    workflows: ["Trivy (hebdomadaire)", "Image Docker", "Version mensuelle"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  mensuel:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ticket « Maintenance mensuelle »
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create maintenance --repo "$REPO" --color 1f4e79 --description "Rappel de maintenance" --force
+          mois=$(date +%m/%Y)
+          if gh issue list --repo "$REPO" --label maintenance --state open --search "Maintenance mensuelle $mois in:title" --json number --jq '.[0].number' | grep -q .; then
+            echo "Ticket du mois déjà ouvert."; exit 0
+          fi
+          release=$(gh release list --repo "$REPO" --limit 1 --json tagName,publishedAt --jq '.[0] // empty | "\(.tagName) (\(.publishedAt[0:10]))"' 2>/dev/null || true)
+          # dernier résultat de chaque contrôle (hors rappels et fusion automatique)
+          runs=$(gh run list --repo "$REPO" --branch main --limit 40 --json workflowName,conclusion,status,createdAt \
+                   --jq 'map(select(.workflowName != "Rappel de maintenance" and .workflowName != "Dependabot — fusion automatique"))
+                         | unique_by(.workflowName) | .[]
+                         | "| \(.workflowName) | \(if .status != "completed" then "en cours" elif .conclusion == "success" then "✅ réussi" else "❌ \(.conclusion)" end) | \(.createdAt[0:10]) |"')
+          prs=$(gh pr list --repo "$REPO" --author app/dependabot --state open --json number,title \
+                  --jq '.[] | "- #\(.number) \(.title)"')
+          cat > corps.md <<EOF
+          ## Maintenance mensuelle — $mois
+
+          Dernière version publiée : ${release:-aucune}
+
+          ### Derniers contrôles
+          | Contrôle | Résultat | Date |
+          |---|---|---|
+          $runs
+
+          ### Mises à jour Dependabot en attente (à valider ou en cours de test)
+          ${prs:-Aucune.}
+
+          ### À faire
+          - [ ] Vérifier qu'aucun contrôle ci-dessus n'est en échec
+          - [ ] Onglet *Security* : aucune alerte ouverte
+          - [ ] S'il y a des mises à jour en attente : lancer l'agent de code sur le poste de travail
+                (prompt 01-maintenance-mensuelle)
+          - [ ] Relire le rapport et le diff, puis pousser
+
+          Fermer ce ticket quand tout est fait.
+          EOF
+          sed -i 's/^          //' corps.md
+          gh issue create --repo "$REPO" --title "Maintenance mensuelle $mois" --label maintenance --body-file corps.md
+
+  blocage:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ticket « Blocage sécurité »
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          gh label create blocage-securite --repo "$REPO" --color b3261e --description "Contrôle de sécurité en échec" --force
+          cat > corps.md <<EOF
+          **Échec : $RUN_NAME** — $(date -u +"%d/%m/%Y %H:%M UTC")
+
+          Exécution : $RUN_URL
+
+          Rien n'a été publié tant que ce contrôle est rouge. Sur le poste de travail :
+          1. \`git pull\`
+          2. Lancer l'agent de code avec le prompt 02-correctif-blocage-trivy, en lui donnant ce lien.
+          3. Relire, pousser ; ce ticket se traite quand le contrôle repasse au vert.
+
+          Détail des failles : \`gh run view $RUN_ID --repo $REPO --log-failed | grep -E "CRITICAL|HIGH"\`
+          EOF
+          sed -i 's/^          //' corps.md
+          num=$(gh issue list --repo "$REPO" --label blocage-securite --state open --json number --jq '.[0].number')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --repo "$REPO" --body-file corps.md
+          else
+            gh issue create --repo "$REPO" --title "Blocage sécurité : $RUN_NAME" --label blocage-securite --body-file corps.md
+          fi

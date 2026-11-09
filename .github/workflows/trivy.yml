@@ -1,0 +1,86 @@
+# Analyse de sécurité Trivy : chaque lundi, et à chaque changement des dépendances ou du Dockerfile.
+# Les actions sont épinglées par empreinte (SHA) et la version de Trivy est figée, suite à
+# l'attaque de la chaîne d'approvisionnement de trivy-action de mars 2026 (CVE-2026-33634).
+name: Trivy (hebdomadaire)
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # lundi 06:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - requirements.txt
+      - Dockerfile
+      - .github/workflows/trivy.yml
+
+permissions:
+  contents: read
+  security-events: write   # publication dans l'onglet « Security » du dépôt
+
+env:
+  TRIVY_VERSION: v0.76.2
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Construction de l'image à analyser
+        run: docker build -t guide-vocal-pas-a-pas:scan .
+
+      - name: Trivy — fichiers du dépôt (dépendances, Dockerfile, secrets)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy-depot.sarif
+
+      - name: Trivy — image Docker
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          skip-setup-trivy: true
+          image-ref: guide-vocal-pas-a-pas:scan
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-image.sarif
+
+      # Gratuit sur un dépôt public ; sur un dépôt privé il faut GitHub Code Security,
+      # sinon cette étape échoue sans bloquer (le rapport reste dans le résumé ci-dessous).
+      - name: Publication dans l'onglet Security (dépôt)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        continue-on-error: true
+        with:
+          sarif_file: trivy-depot.sarif
+          category: trivy-depot
+      - name: Publication dans l'onglet Security (image)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        continue-on-error: true
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - name: Rapport lisible — échoue s'il existe une faille CRITIQUE/HAUTE corrigeable
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          skip-setup-trivy: true
+          image-ref: guide-vocal-pas-a-pas:scan
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          format: table
+          output: trivy-rapport.txt
+          exit-code: "1"
+
+      - name: Résumé de l'analyse
+        if: always()
+        run: |
+          echo "## Trivy — image guide-vocal-pas-a-pas" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat trivy-rapport.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "pas de rapport" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

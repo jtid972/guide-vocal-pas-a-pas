@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+data/
+voix/
+*.onnx
+*.onnx.json
+*.sarif
+.DS_Store
+Thumbs.db
+
+# Instructions privées des agents de code (Mistral Vibe…) : placées à la main sur le poste
+# de travail, jamais publiées (copie de référence dans OneDrive, dossier Vibecoding)
+AGENTS.md
+CLAUDE.md
+docs/methode-maintenance.md
+docs/prompts/
+docs/lecons.md
+*.drawio

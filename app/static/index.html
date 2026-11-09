@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide vocal pas à pas</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; }
+  textarea { width: 100%; min-height: 10rem; box-sizing: border-box; font-size: 1rem; padding: 0.5rem; }
+  fieldset { margin: 1rem 0; }
+  label { display: block; margin: 0.4rem 0; }
+  button { font-size: 1rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+  #resultat { margin-top: 1.5rem; padding: 1rem; border: 1px solid #8884; border-radius: 6px; display: none; }
+  #erreur { color: #c0392b; margin-top: 1rem; display: none; }
+  footer { margin-top: 3rem; font-size: 0.85rem; opacity: 0.7; }
+  a.bouton { display: inline-block; margin: 0.3rem 0.5rem 0.3rem 0; }
+  pre { white-space: pre-wrap; background: #8881; padding: 0.8rem; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Guide vocal pas à pas</h1>
+<p>Tapez le texte à convertir en voix, choisissez la voix et la cible technique.
+L'application produit le fichier audio au bon format, ainsi qu'un guide d'import.</p>
+
+<form id="formulaire">
+  <label for="texte">Texte à synthétiser</label>
+  <textarea id="texte" maxlength="8000" required placeholder="Bonjour, vous êtes en relation avec…"></textarea>
+
+  <fieldset>
+    <legend>Voix</legend>
+    <label><input type="radio" name="voix" value="femme" checked> Femme</label>
+    <label><input type="radio" name="voix" value="homme"> Homme</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Cible technique</legend>
+    <label><input type="radio" name="cible" value="alcatel_oxe" checked> Alcatel OmniPCX Enterprise (OXE/4400) — WAV téléphonique G.711</label>
+    <label><input type="radio" name="cible" value="asterisk_freepbx"> Asterisk / FreePBX — guide ou messagerie vocale</label>
+  </fieldset>
+
+  <fieldset id="options_oxe">
+    <legend>Codec G.711 (Alcatel OXE)</legend>
+    <label><input type="radio" name="codec_oxe" value="alaw" checked> A-law (Europe)</label>
+    <label><input type="radio" name="codec_oxe" value="mulaw"> µ-law (Amérique du Nord / Japon)</label>
+  </fieldset>
+
+  <fieldset id="options_asterisk" style="display:none">
+    <legend>Format (Asterisk / FreePBX)</legend>
+    <label><input type="radio" name="format_asterisk" value="mp3" checked> MP3</label>
+    <label><input type="radio" name="format_asterisk" value="wav"> WAV (8 kHz, 16 bits)</label>
+  </fieldset>
+
+  <button type="submit">Générer le guide vocal</button>
+</form>
+
+<div id="erreur"></div>
+
+<div id="resultat">
+  <h2>Résultat</h2>
+  <p id="resume"></p>
+  <a class="bouton" id="lien_zip" href="#">Télécharger le ZIP (audio + guide)</a>
+  <a class="bouton" id="lien_audio" href="#">Télécharger l'audio seul</a>
+  <h3>Guide d'import</h3>
+  <pre id="guide"></pre>
+</div>
+
+<footer>
+  Guide vocal pas à pas — Copyright (c) 2026 Johan TIDAS — AGPL-3.0-or-later —
+  <a href="https://github.com/jtid972/guide-vocal-pas-a-pas">Code source</a>
+</footer>
+
+<script>
+const form = document.getElementById('formulaire');
+const cibleRadios = form.querySelectorAll('input[name="cible"]');
+function majOptions() {
+  const cible = form.querySelector('input[name="cible"]:checked').value;
+  document.getElementById('options_oxe').style.display = cible === 'alcatel_oxe' ? '' : 'none';
+  document.getElementById('options_asterisk').style.display = cible === 'asterisk_freepbx' ? '' : 'none';
+}
+cibleRadios.forEach(r => r.addEventListener('change', majOptions));
+majOptions();
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const erreurDiv = document.getElementById('erreur');
+  const resultatDiv = document.getElementById('resultat');
+  erreurDiv.style.display = 'none';
+  resultatDiv.style.display = 'none';
+
+  const corps = {
+    texte: document.getElementById('texte').value,
+    voix: form.querySelector('input[name="voix"]:checked').value,
+    cible: form.querySelector('input[name="cible"]:checked').value,
+    codec_oxe: form.querySelector('input[name="codec_oxe"]:checked').value,
+    format_asterisk: form.querySelector('input[name="format_asterisk"]:checked').value,
+  };
+
+  const bouton = form.querySelector('button');
+  bouton.disabled = true;
+  bouton.textContent = 'Génération en cours…';
+  try {
+    const rep = await fetch('/api/syntheses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corps),
+    });
+    const donnees = await rep.json();
+    if (!rep.ok) throw new Error(donnees.detail || 'Erreur inconnue');
+
+    document.getElementById('resume').textContent =
+      `Fichier : ${donnees.fichier_sortie} (${Math.round(donnees.taille_octets / 1024)} Ko)`;
+    document.getElementById('lien_zip').href = donnees.telecharger_url;
+    document.getElementById('lien_audio').href = donnees.audio_url;
+    const guideRep = await fetch(donnees.guide_url);
+    document.getElementById('guide').textContent = await guideRep.text();
+    resultatDiv.style.display = '';
+  } catch (err) {
+    erreurDiv.textContent = 'Erreur : ' + err.message;
+    erreurDiv.style.display = '';
+  } finally {
+    bouton.disabled = false;
+    bouton.textContent = 'Générer le guide vocal';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Version de maintenance automatique, le 1er de chaque mois :
+#   1. reconstruit l'image sans cache, avec les derniers correctifs (Debian, Python, dépendances fusionnées)
+#   2. la fait contrôler par Trivy : s'il reste une faille CRITIQUE/HAUTE corrigeable → arrêt + e-mail, rien n'est publié
+#   3. sinon : numéro de version +1 (ex. 0.1.3 → 0.1.4), étiquette et « Release » GitHub avec la liste des changements
+#   4. lance la publication de l'image Docker pour cette version
+name: Version mensuelle
+
+on:
+  schedule:
+    - cron: "23 4 1 * *"   # le 1er du mois à 04:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # étiquette et Release
+  actions: write    # déclenchement du workflow « Image Docker »
+
+env:
+  TRIVY_VERSION: v0.76.2
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Construction sans cache (derniers correctifs)
+        run: docker build --pull --no-cache -t guide-vocal-pas-a-pas:release .
+
+      - name: Contrôle Trivy (bloquant)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          image-ref: guide-vocal-pas-a-pas:release
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          format: table
+          exit-code: "1"
+
+      - name: Calcul du numéro de version (dernière étiquette + 1)
+        id: v
+        run: |
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$last" ]; then
+            last="v$(python3 -c "import re;print(re.search(r'or \"(.+?)\"', open('app/__init__.py').read()).group(1))")"
+            next="${last#v}"            # aucune étiquette : première version = celle du code
+          else
+            IFS=. read -r major minor patch <<EOF
+          ${last#v}
+          EOF
+            next="$major.$minor.$((patch + 1))"
+          fi
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "Nouvelle version : $next"
+
+      # La Release crée l'étiquette via l'API : aucun commit sur main, compatible avec une branche protégée.
+      - name: Étiquette et Release GitHub
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$NEXT" --target main --title "Guide vocal pas à pas $NEXT" --generate-notes \
+            --notes "Version de maintenance mensuelle : image reconstruite avec les derniers correctifs de sécurité et contrôlée par Trivy (aucune faille critique ou haute corrigeable)."
+
+      # Une étiquette créée par ce workflow ne déclenche pas les autres workflows :
+      # on lance donc explicitement la publication de l'image pour cette version.
+      - name: Publication de l'image Docker de la version
+        env:
+          NEXT: ${{ steps.v.outputs.next }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run docker-publish.yml --ref "v$NEXT"

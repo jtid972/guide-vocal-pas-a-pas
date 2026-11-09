@@ -1,0 +1,36 @@
+# Propositions automatiques de mise à jour, chaque lundi (une demande de fusion par famille).
+# Chaque proposition est testée par la CI ; les mineures/correctives sont fusionnées
+# automatiquement après réussite des tests (dependabot-auto.yml), les majeures attendent votre accord.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]   # les majeures arrivent à part, à valider à la main
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "docker"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "ci"

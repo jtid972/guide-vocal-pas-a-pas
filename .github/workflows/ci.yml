@@ -1,0 +1,64 @@
+# Tests à chaque modification et à chaque proposition de mise à jour (Dependabot)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (avec vraie synthèse vocale)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff check app tests
+      - name: Tests (dont synthèse réelle avec une voix Piper)
+        run: pytest -q
+        env:
+          RUN_PIPER: "1"
+
+  desktop:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q
+
+  docker:
+    name: Construction de l'image Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker build -t guide-vocal-pas-a-pas:ci .
+      - name: Démarrage et contrôle de santé
+        run: |
+          docker run -d --name gvap -p 8000:8000 guide-vocal-pas-a-pas:ci
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8000/healthz && exit 0; sleep 1; done
+          docker logs gvap; exit 1
